@@ -158,7 +158,7 @@ Validate with the most relevant checks:
 
 Run when available:
 
-melos run check:arch
+dart run tools/architecture_check.dart
 
 ---
 

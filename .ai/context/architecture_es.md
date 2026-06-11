@@ -1253,7 +1253,12 @@ Las reglas arquitectónicas **se verifican automáticamente** mediante dos mecan
 
 Ejecutar con:
 ```bash
-melos run check:arch
+dart run tools/architecture_check.dart
+```
+
+O acotado a una sola feature:
+```bash
+dart run tools/architecture_check.dart --path lib/features/<feature_name>
 ```
 
 Retorna exit code 1 si hay violaciones, lo que permite integrarlo en CI. Valida:
@@ -1351,7 +1356,13 @@ Reglas disponibles:
 Ejecutar con:
 
 ```bash
-melos run check:debt
+dart run tools/technical_debt_metrics.dart
+```
+
+O acotado a una sola feature:
+
+```bash
+dart run tools/technical_debt_metrics.dart --path lib/features/<feature_name>
 ```
 
 Siempre sale con código 0 (solo reporta, no bloquea CI). Genera un reporte estructurado por scope.
@@ -1399,7 +1410,7 @@ Siempre sale con código 0 (solo reporta, no bloquea CI). Genera un reporte estr
 El Policy Engine aplica umbrales contextuales a las métricas. Archivo de política por defecto: `.ai/architecture-policies.yaml`.
 
 ```bash
-melos run check:debt -- --policy .ai/architecture-policies.yaml
+dart run tools/technical_debt_metrics.dart --policy .ai/architecture-policies.yaml
 ```
 
 ### Scopes de política
@@ -1434,10 +1445,10 @@ Los baselines capturan un snapshot de métricas para comparación a lo largo del
 
 ```bash
 # Exportar un baseline
-melos run check:debt -- --export-baseline
+dart run tools/technical_debt_metrics.dart --export-baseline
 
 # Comparar contra un baseline
-melos run check:debt -- --compare-baseline
+dart run tools/technical_debt_metrics.dart --compare-baseline
 ```
 
 ### Almacenamiento de baselines
@@ -1525,7 +1536,7 @@ specs/
 ## Integración con gobernanza
 
 - `plan.md` debe referenciar el baseline actual de `.ai/architecture-baselines/`.
-- `tasks.md` debe incluir un bloque de validación: `check:arch` + `check:debt` + comparación de baseline.
+- `tasks.md` debe incluir un bloque de validación: `dart run tools/architecture_check.dart` + `dart run tools/technical_debt_metrics.dart` + comparación de baseline.
 - `quickstart.md` debe cubrir todos los acceptance criteria de `spec.md` como escenarios de prueba.
 - El reviewer debe producir una tabla de spec compliance que mapea cada criterio a un estado de implementación.
 
@@ -1573,8 +1584,8 @@ Antes de considerar terminada una feature, validar:
 [ ] No hay lógica de negocio pesada en widgets.
 [ ] No hay estilos hardcodeados si existe Design System.
 [ ] Hay tests al menos para use cases, cubits o repositories críticos.
-[ ] melos run check:arch pasa sin errores.
-[ ] melos run check:debt revisado — sin regresiones inaceptables vs. baseline.
+[ ] dart run tools/architecture_check.dart pasa sin errores.
+[ ] dart run tools/technical_debt_metrics.dart revisado — sin regresiones inaceptables vs. baseline.
 ```
 # 16. Decisiones por defecto
 

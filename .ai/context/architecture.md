@@ -1373,7 +1373,13 @@ Architectural rules are **automatically verified** through two complementary mec
 Run with:
 
 ```bash
-melos run check:arch
+dart run tools/architecture_check.dart
+```
+
+Or scoped to a single feature:
+
+```bash
+dart run tools/architecture_check.dart --path lib/features/<feature_name>
 ```
 
 Returns exit code 1 if violations are found, enabling CI integration. Validates:
@@ -1484,7 +1490,13 @@ Available rules:
 Run with:
 
 ```bash
-melos run check:debt
+dart run tools/technical_debt_metrics.dart
+```
+
+Or scoped to a single feature:
+
+```bash
+dart run tools/technical_debt_metrics.dart --path lib/features/<feature_name>
 ```
 
 Always exits 0 (reporting only — does not block CI). Produces a structured report per scope.
@@ -1532,7 +1544,7 @@ Always exits 0 (reporting only — does not block CI). Produces a structured rep
 The Policy Engine applies context-aware thresholds to metrics. Default policy file: `.ai/architecture-policies.yaml`.
 
 ```bash
-melos run check:debt -- --policy .ai/architecture-policies.yaml
+dart run tools/technical_debt_metrics.dart --policy .ai/architecture-policies.yaml
 ```
 
 ### Policy scopes
@@ -1567,10 +1579,10 @@ Baselines capture a metric snapshot for comparison over time.
 
 ```bash
 # Export a baseline
-melos run check:debt -- --export-baseline
+dart run tools/technical_debt_metrics.dart --export-baseline
 
 # Compare against a baseline
-melos run check:debt -- --compare-baseline
+dart run tools/technical_debt_metrics.dart --compare-baseline
 ```
 
 ### Baseline storage
@@ -1658,7 +1670,7 @@ specs/
 ## Integration with Governance
 
 - `plan.md` must reference the current baseline from `.ai/architecture-baselines/`.
-- `tasks.md` must include a validation block: `check:arch` + `check:debt` + baseline comparison.
+- `tasks.md` must include a validation block: `dart run tools/architecture_check.dart` + `dart run tools/technical_debt_metrics.dart` + baseline comparison.
 - `quickstart.md` must cover all acceptance criteria from `spec.md` as test scenarios.
 - Reviewer must produce a spec compliance table mapping each criterion to an implementation status.
 
@@ -1709,8 +1721,8 @@ Before considering a feature done, validate:
 [ ] No heavy business logic in widgets.
 [ ] No hardcoded styles when a Design System exists.
 [ ] Tests exist at least for critical use cases, cubits, or repositories.
-[ ] melos run check:arch passes with no errors.
-[ ] melos run check:debt reviewed — no unacceptable regressions vs. baseline.
+[ ] dart run tools/architecture_check.dart passes with no errors.
+[ ] dart run tools/technical_debt_metrics.dart reviewed — no unacceptable regressions vs. baseline.
 ```
 
 ---

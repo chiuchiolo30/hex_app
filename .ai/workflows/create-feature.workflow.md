@@ -255,7 +255,7 @@ GetIt configuration
 Run:
 
 ```bash
-melos run check:arch
+dart run tools/architecture_check.dart --path lib/features/<feature_name>
 ```
 
 ### RULE
@@ -272,13 +272,13 @@ If validation fails:
 Run:
 
 ```bash
-melos run check:debt
+dart run tools/technical_debt_metrics.dart --path lib/features/<feature_name>
 ```
 
 If a baseline exists, compare:
 
 ```bash
-melos run check:debt -- --compare-baseline
+dart run tools/technical_debt_metrics.dart --path lib/features/<feature_name> --compare-baseline
 ```
 
 ### RULE
@@ -288,7 +288,7 @@ melos run check:debt -- --compare-baseline
 * If feature is new or significantly changed → export new baseline:
 
 ```bash
-melos run check:debt -- --export-baseline
+dart run tools/technical_debt_metrics.dart --path lib/features/<feature_name> --export-baseline
 ```
 
 ---
@@ -371,7 +371,7 @@ The feature is complete ONLY if:
 * architecture design approved
 * implementation follows design
 * tasks.md completed
-* `melos run check:arch` passes
+* `dart run tools/architecture_check.dart` passes
 * debt metrics reviewed — no unacceptable regressions
 * reviewer approves
 * quickstart.md written (Standard/Complex)
@@ -391,265 +391,6 @@ The feature is complete ONLY if:
 * leaking DTOs
 * ignoring reviewer feedback
 * ignoring baseline regressions
-
----
-
-## FINAL RULE
-
-If the feature works but breaks architecture:
-
-→ IT IS NOT COMPLETE
-
-## PURPOSE
-
-Create a production-ready feature following:
-
-* Clean Architecture
-* Design System rules
-* Code conventions
-* Project standards
-
-This workflow MUST be followed step by step.
-
----
-
-## REQUIRED CONTEXT (MANDATORY)
-
-Before starting, you MUST read:
-
-* `.ai/context/architecture.md`
-
-* `.ai/context/design.md`
-
-* `.ai/context/conventions.md`
-
-* `.ai/agents/architect.agent.md`
-
-* `.ai/agents/feature-builder.agent.md`
-
-* `.ai/agents/reviewer.agent.md`
-
----
-
-## GLOBAL RULE
-
-NEVER implement code before completing architecture design.
-
----
-
-# WORKFLOW
-
-## STEP 1 — ARCHITECTURE DESIGN
-
-Act as:
-
-.ai/agents/architect.agent.md
-
----
-
-### TASK
-
-Design the feature BEFORE implementation.
-
----
-
-### OUTPUT (MANDATORY)
-
-You MUST provide:
-
-#### 1. Feature Summary
-
-* purpose
-* user flow
-
-#### 2. Domain Design
-
-* entities
-* use cases
-* repository (abstract)
-
-#### 3. Data Design
-
-* DTOs
-* data sources
-* repository implementation
-* mappers
-
-#### 4. UI Design
-
-* screen
-* cubit / bloc
-* states (loading, success, empty, error)
-
-#### 5. Architecture Validation
-
-* confirm no rule is violated
-* list risks if any
-
----
-
-### STOP RULE
-
-After this step:
-
-STOP.
-
-Wait for approval before continuing.
-
----
-
-## STEP 2 — IMPLEMENTATION
-
-Act as:
-
-.ai/agents/feature-builder.agent.md
-
----
-
-### TASK
-
-Implement the feature based ONLY on approved design.
-
----
-
-### IMPLEMENTATION ORDER (MANDATORY)
-
-1. Domain
-2. Data
-3. UI
-4. Dependency Injection
-
----
-
-### OUTPUT (MANDATORY)
-
-You MUST return:
-
-#### 1. File Structure
-
-feature/
-domain/
-data/
-ui/
-di/
-
----
-
-#### 2. Domain Code
-
-* entities
-* repository
-* use cases
-
----
-
-#### 3. Data Code
-
-* DTOs
-* datasource
-* repository implementation
-* mapper
-
----
-
-#### 4. UI Code
-
-* cubit / bloc
-* state
-* screen (base structure)
-
----
-
-#### 5. Dependency Injection
-
-GetIt configuration
-
----
-
-## STEP 3 — REVIEW
-
-Act as:
-
-.ai/agents/reviewer.agent.md
-
----
-
-### TASK
-
-Review the implementation.
-
----
-
-### OUTPUT (MANDATORY)
-
-#### 1. Overall Assessment
-
-* score (1–10)
-* summary
-
-#### 2. Critical Issues
-
-(must fix)
-
-#### 3. Medium Issues
-
-(should fix)
-
-#### 4. Minor Issues
-
-(optional)
-
-#### 5. Architecture Compliance
-
-#### 6. Design Compliance
-
-#### 7. Final Decision
-
-* APPROVED
-* APPROVED WITH CHANGES
-* REJECTED
-
----
-
-## STEP 4 — ARCHITECTURE VALIDATION
-
-Run:
-
-melos run check:arch
-
----
-
-### RULE
-
-If validation fails:
-
-* FIX issues
-* DO NOT finish workflow
-
----
-
-## DEFINITION OF DONE
-
-The feature is complete ONLY if:
-
-* architecture design was approved
-* implementation follows design
-* reviewer approves
-* architecture check passes
-* no UI → Data dependency exists
-* all UI states are implemented
-* Design System is respected
-
----
-
-## STRICT PROHIBITIONS
-
-* skipping Step 1
-* implementing without approval
-* mixing layers
-* accessing Data from UI
-* leaking DTOs
-* ignoring reviewer feedback
 
 ---
 
