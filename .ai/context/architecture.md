@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This document defines the mandatory architectural rules for this Flutter app, built under **Hexagonal Architecture (Ports & Adapters)**, a feature-first approach, and enterprise maintainability standards.
+This document defines the mandatory architectural rules for Flutter projects built under Clean Architecture, a feature-first approach, and enterprise maintainability standards.
 
-Any developer or AI agent working on this project must follow the same approach to building features, separating responsibilities, naming components, and avoiding unnecessary coupling.
+Any developer or AI agent working on the project must follow the same approach to building features, separating responsibilities, naming components, and avoiding unnecessary coupling.
 
 ---
 
@@ -17,22 +17,18 @@ The architecture must prioritize:
 - low coupling;
 - high cohesion;
 - clear separation of responsibilities;
-- independence between Domain and the technical world (Flutter, HTTP, storage, etc.);
+- independence between UI, domain, and data;
 - feature scalability;
-- consistency across the app;
+- ease of working in a monorepo;
+- consistency across modules;
 - explicit code over "magic" code.
 
 The primary rule is:
 
 ```txt
-Presentation → Application → Domain
-Infrastructure → Domain (implements Domain Ports)
-
-Presentation must never access Infrastructure directly.
-Domain must never depend on Application, Infrastructure, or Presentation.
+UI → Domain → Data
+UI must never access Data directly.
 ```
-
-The Domain is the **hexagon's core**. Everything else (Presentation on the "driving" side, Infrastructure on the "driven" side) revolves around it and depends on it — never the other way around.
 
 ---
 
@@ -41,7 +37,7 @@ The Domain is the **hexagon's core**. Everything else (Presentation on the "driv
 The project uses:
 
 ```txt
-Hexagonal Architecture (Ports & Adapters) + Feature-First
+Clean Architecture + Feature-First + Lightweight DDD
 ```
 
 The main structure must be organized by functional features.
@@ -51,19 +47,20 @@ Example:
 ```txt
 lib/
   features/
-    login/
+    auth/
       domain/
-      application/
-      infrastructure/
-      presentation/
-      di/
+      data/
+      ui/
 
-    profile/
+    menu_selection/
       domain/
-      application/
-      infrastructure/
-      presentation/
-      di/
+      data/
+      ui/
+
+    branches/
+      domain/
+      data/
+      ui/
 ```
 
 - Each feature must be as independent as possible.
@@ -78,35 +75,64 @@ Each feature may have these layers:
 ```
 feature/
   domain/
-  application/
-  infrastructure/
-  presentation/
+  data/
+  ui/
   di/
 ```
 
-No alternative naming (`ui/`, `data/`, `domain/usecases/`, etc.) may be mixed in. This project uses exactly these five layer names, consistently.
+`presentation/` may be used instead of `ui/`, or `infrastructure/` instead of `data/`, if the project already uses them — but only one convention must be maintained within the same project.
 
 ---
 
-# 1. Domain Layer (The Hexagon Core)
+# 0. Required Dependencies (Project Setup)
+
+## Purpose
+
+This project starts as an empty Flutter app (`flutter create`). The architecture described in this document depends on specific packages that are **not** included by default.
+
+Before implementing the first feature — or any feature that needs a capability not yet available in `pubspec.yaml` — the responsible agent (`architect.agent.md` / `feature-builder.agent.md`) MUST check `pubspec.yaml` and add any missing dependency from the table below using `flutter pub add <package>`.
+
+## Standard Stack
+
+| Package | Layer / Use | When to add |
+|---|---|---|
+| `flutter_bloc` | UI — Cubit/Bloc state management | Required from the first feature |
+| `equatable` | Domain/UI — value equality for Entities, States, Failures | Required from the first feature |
+| `get_it` | DI — service locator | Required from the first feature |
+| `dartz` | Domain/Data — `Either<Failure, T>`, `Unit` | Required from the first feature |
+| `dio` | Data — HTTP client for remote datasources | Required as soon as a feature consumes a REST API |
+| `go_router` | Routing | Required as soon as the app has more than one screen / navigation flow |
+
+## Rules
+
+- This is the project's standard stack. Do not introduce alternative libraries that solve the same problem (e.g. `riverpod`, `provider`, `result_dart`, `chopper`, `retrofit`) unless explicitly decided for the project.
+- `dartz` is the project standard for `Either` / `Unit`. Every `Failure` subtype must extend `Equatable`.
+- `dio` is the project standard HTTP client. Remote datasources depend on an injected `Dio` instance (or a thin adapter around it) — never instantiate `Dio` directly inside a datasource.
+- DTOs use manual `fromJson` / `toJson` (no `freezed`, no `json_serializable`) unless explicitly decided for the project.
+- Adding a dependency is part of the Data/DI step of feature implementation. It must be reflected in `pubspec.yaml` and explicitly mentioned in the feature output (e.g. "Dependencies added: dio").
+- Do not add a dependency "just in case" — only add what the current feature actually needs.
+
+---
+
+# 1. Domain Layer
 
 ### Responsibility
 
-The `domain` layer contains the business model and the **Ports** (contracts) the rest of the system must honor to interact with it.
+The `domain` layer contains the business rules and primary contracts of the feature.
 
 It must be the most stable layer.
 
-It must not depend on Flutter, Supabase, Firebase, Dio, SQLite, SharedPreferences, the `application` layer, the `infrastructure` layer, the `presentation` layer, or any technical detail.
+It must not depend on Flutter, Supabase, Firebase, Dio, SQLite, SharedPreferences, external APIs, or any technical details.
 
 ### May contain
 
 ```
 domain/
   entities/
-  value_objects/
-  repositories/      (Ports — abstract contracts)
-  rules/             (domain services / pure business rules)
+  repositories/
+  usecases/
   failures/
+  value_objects/
   events/
 ```
 
@@ -115,31 +141,31 @@ Example:
 ```
 domain/
   entities/
-    user.dart
-
-  value_objects/
-    email.dart
-    password.dart
+    menu_combination.dart
 
   repositories/
-    auth_repository.dart      (Port)
+    menu_repository.dart
+
+  usecases/
+    get_published_menus_usecase.dart
+    select_menu_combination_usecase.dart
 
   failures/
-    auth_failure.dart
+    menu_failure.dart
 ```
 
 ## Mandatory Domain Rules
 
-- Domain does not import Application.
-- Domain does not import Infrastructure.
-- Domain does not import Presentation.
+- Domain does not import Data.
+- Domain does not import UI.
 - Domain does not know DTOs.
 - Domain does not know API responses.
 - Domain does not know widgets.
 - Domain does not know Cubits or Blocs.
-- Domain must not depend on infrastructure packages (HTTP clients, Supabase, etc.).
-- Domain defines **Ports** (contracts), not implementations.
-- Domain Rules (pure business logic) live next to Entities, expressed in business language.
+- Domain must not depend on infrastructure packages.
+- Domain defines contracts, not implementations.
+- Use cases must express business actions.
+- Repositories in Domain are abstractions.
 
 ## Entities
 
@@ -148,19 +174,26 @@ Entities represent business concepts.
 Example:
 
 ```dart
-class User extends Equatable {
-  const User({
+class MenuCombination extends Equatable {
+  const MenuCombination({
     required this.id,
-    required this.email,
-    required this.displayName,
+    required this.mainDish,
+    required this.sideDish,
+    required this.availableDate,
   });
 
   final String id;
-  final String email;
-  final String displayName;
+  final Product mainDish;
+  final Product? sideDish;
+  final DateTime availableDate;
 
   @override
-  List<Object?> get props => [id, email, displayName];
+  List<Object?> get props => [
+        id,
+        mainDish,
+        sideDish,
+        availableDate,
+      ];
 }
 ```
 
@@ -173,53 +206,22 @@ class User extends Equatable {
 - They must not depend on DTOs.
 - They may use `Equatable`.
 - Do not use `freezed` in entities by default, unless explicitly decided for the project.
-- Do not give entities technical suffixes (`Dto`, `Model`, `Response`, `Entity`) — see "Entity Trap" in section 12.
 
-## Value Objects
+## Abstract Repositories
 
-Value Objects encapsulate domain primitives that carry their own validation/invariants.
-
-Example:
-
-```dart
-class Email extends Equatable {
-  factory Email(String value) {
-    if (!value.contains('@')) {
-      throw const FormatException('Invalid email');
-    }
-    return Email._(value);
-  }
-
-  const Email._(this.value);
-
-  final String value;
-
-  @override
-  List<Object?> get props => [value];
-}
-```
-
-### Rules:
-
-- Value Objects validate themselves at construction time.
-- Value Objects are immutable.
-- Value Objects live in `domain/value_objects/`.
-- Use Value Objects when a primitive (String, int, etc.) carries business meaning and invariants (e.g. `Email`, `Password`, `Money`). Do not over-engineer trivial fields into Value Objects.
-
-## Ports (Abstract Repositories)
-
-Ports are abstract contracts that define how the Domain expects to interact with the outside world. They are implemented by **Adapters** in the `infrastructure` layer.
+Abstract repositories live in Domain.
 
 Example:
 
 ```dart
-abstract class AuthRepository {
-  Future<Either<AuthFailure, User>> login({
-    required String email,
-    required String password,
+abstract class MenuRepository {
+  Future<Either<MenuFailure, List<MenuCombination>>> getPublishedMenus({
+    required DateTime date,
   });
 
-  Future<Either<AuthFailure, void>> logout();
+  Future<Either<MenuFailure, Unit>> selectCombination({
+    required String combinationId,
+  });
 }
 ```
 
@@ -229,52 +231,7 @@ abstract class AuthRepository {
 - Returns entities, value objects, or domain types.
 - Never returns DTOs.
 - Never returns raw responses.
-- Never exposes Supabase, Dio, Firebase, SQLite, or any other external/technical detail.
-- Ports live in `domain/repositories/` and end in `Repository` (e.g. `AuthRepository`).
-
-## Domain Rules (Domain Services)
-
-When a business rule does not naturally belong to a single Entity or Value Object, it lives in `domain/rules/` as a pure function or pure class.
-
-### Rules:
-
-- Domain Rules are pure Dart — no I/O, no Flutter, no Ports invoked directly (Ports are invoked from `application`, never from `domain/rules`).
-- Domain Rules must have a single, clear responsibility, expressed in business language.
-
----
-
-# 2. Application Layer
-
-### Responsibility
-
-The `application` layer orchestrates Domain Ports to fulfil business actions ("Use Cases"). It is the only layer (besides `infrastructure`, which implements Ports) allowed to depend on `domain`.
-
-It must not depend on Flutter widgets, `infrastructure`, or `presentation`.
-
-### May contain
-
-```
-application/
-  usecases/
-  services/        (Application Services — optional, shared orchestration)
-```
-
-Example:
-
-```
-application/
-  usecases/
-    login_usecase.dart
-    logout_usecase.dart
-```
-
-## Mandatory Application Rules
-
-- Application depends only on `domain` (entities, value objects, Ports, failures).
-- Application must not import `infrastructure` (no DTOs, datasources, adapters, API clients).
-- Application must not import `presentation` (no widgets, BuildContext, Cubits/Blocs).
-- Application must not access datasources directly — only through Domain Ports.
-- Application must not contain UI logic, navigation, or message display.
+- Never exposes Supabase, Dio, Firebase, SQLite, or external details.
 
 ## UseCases
 
@@ -287,37 +244,23 @@ abstract class UseCase<Type, Params> {
   Future<Either<Failure, Type>> call(Params params);
 }
 
-class LoginUseCase implements UseCase<User, LoginParams> {
-  const LoginUseCase(this._authRepository);
-
-  final AuthRepository _authRepository;
-
-  @override
-  Future<Either<AuthFailure, User>> call(LoginParams params) {
-    return _authRepository.login(
-      email: params.email,
-      password: params.password,
-    );
-  }
-}
-
-class LoginParams extends Equatable {
-  const LoginParams({required this.email, required this.password});
-
-  final String email;
-  final String password;
+class GetFoodProvidersRatingUsecase
+    implements UseCase<List<FoodProvider>, NoParams> {
+  GetFoodProvidersRatingUsecase(this.hr);
+  final HomeRepository hr;
 
   @override
-  List<Object?> get props => [email, password];
+  Future<Either<Failure, List<FoodProvider>>> call(NoParams n) =>
+      hr.getFoodProvidersRating();
 }
 ```
 
 ### Rules:
 
 - A use case must have a single, clear responsibility.
-- Must depend on Domain Ports (`domain/repositories/*`), never on Adapters directly.
+- Must depend on abstract repositories.
 - Must return `Either<Failure, T>` when errors are possible.
-- Must not access datasources or DTOs directly.
+- Must not access datasources directly.
 - Must not contain UI logic.
 - Must not handle navigation.
 - Must not display messages.
@@ -330,17 +273,19 @@ Use semantic, action-oriented names.
 #### Good examples:
 
 ```
-LoginUseCase
-LogoutUseCase
+SignInUseCase
 GetCurrentUserProfileUseCase
+GetPublishedMenusUseCase
+SelectMenuCombinationUseCase
+ValidateTokenUseCase
 RefreshTokenUseCase
-ValidateSessionUseCase
+GetEnabledBranchesUseCase
 ```
 
 #### Bad examples:
 
 ```
-AuthUseCase
+MenuUseCase
 DataUseCase
 CallApiUseCase
 ProcessUseCase
@@ -349,98 +294,90 @@ HandleUseCase
 
 ---
 
-# 3. Infrastructure Layer (Adapters)
+# 2. Data Layer
 
 ### Responsibility
 
-The `infrastructure` layer contains the **Adapters**: concrete implementations of Domain Ports, plus everything technical — API clients, DTOs, mappers, and datasources.
+The `data` layer contains concrete implementations, API integration, local storage, DTOs, mappers, and datasources.
 
-Infrastructure knows technical details.
+Data knows technical details.
 
-Domain and Application must not know Infrastructure.
+Domain must not know Data.
 
 ### May contain
 
 ```
-infrastructure/
-  api/              (API clients)
+data/
   datasources/
+  sources/
+  sources/api/
+  sources/database/
+  sources/remote/
   dtos/
+  models/
   mappers/
-  repositories/     (Adapters — implementations of Domain Ports)
+  repositories/
 ```
 
 Example:
 
 ```
-infrastructure/
-  api/
-    auth_api_client.dart
-
+data/
   datasources/
-    auth_remote_datasource.dart
-    auth_local_datasource.dart
+    menu_remote_datasource.dart
+    menu_local_datasource.dart
 
   dtos/
-    user_dto.dart
+    menu_combination_dto.dart
 
   mappers/
-    user_dto_mapper.dart
+    menu_combination_mapper.dart
 
   repositories/
-    auth_repository_adapter.dart
+    menu_repository_impl.dart
 ```
 
-### Mandatory Infrastructure Rules
+### Mandatory Data Rules
 
-- Infrastructure may import Domain (to implement Ports and use Entities/Value Objects/Failures).
-- Infrastructure implements the Ports (`*Repository`) defined in Domain via Adapters (`*RepositoryAdapter`).
-- Infrastructure contains DTOs and mappers.
-- Infrastructure may use Supabase, Dio, Firebase, SQLite, SharedPreferences, etc.
-- Infrastructure must not import Presentation.
-- Infrastructure must not depend on Cubits or Blocs.
-- Infrastructure must not emit visual states.
-- Infrastructure must not handle navigation.
-- Infrastructure must not show SnackBars, dialogs, or loaders.
+- Data may import Domain.
+- Data implements repositories defined in Domain.
+- Data contains DTOs and mappers.
+- Data may use Supabase, Dio, Firebase, SQLite, SharedPreferences, etc.
+- Data must not import UI.
+- Data must not depend on Cubits or Blocs.
+- Data must not emit visual states.
+- Data must not handle navigation.
+- Data must not show SnackBars, dialogs, or loaders.
 
-### Repository Adapters
+### RepositoryImpl
 
 Example:
 
 ```dart
-class AuthRepositoryAdapter implements AuthRepository {
-  const AuthRepositoryAdapter({
-    required AuthRemoteDataSource remoteDataSource,
+class MenuRepositoryImpl implements MenuRepository {
+  const MenuRepositoryImpl({
+    required MenuRemoteDataSource remoteDataSource,
   }) : _remoteDataSource = remoteDataSource;
 
-  final AuthRemoteDataSource _remoteDataSource;
+  final MenuRemoteDataSource _remoteDataSource;
 
   @override
-  Future<Either<AuthFailure, User>> login({
-    required String email,
-    required String password,
+  Future<Either<MenuFailure, List<MenuCombination>>> getPublishedMenus({
+    required DateTime date,
   }) async {
     try {
-      final dto = await _remoteDataSource.login(
-        email: email,
-        password: password,
-      );
+      final dtos = await _remoteDataSource.getPublishedMenus(date: date);
 
-      return Right(dto.toEntity());
-    } on InvalidCredentialsException {
-      return const Left(InvalidCredentialsFailure());
-    } catch (error, stackTrace) {
-      return Left(AuthUnexpectedFailure(error: error, stackTrace: stackTrace));
-    }
-  }
+      final entities = dtos
+          .map((dto) => dto.toDomain())
+          .toList();
 
-  @override
-  Future<Either<AuthFailure, void>> logout() async {
-    try {
-      await _remoteDataSource.logout();
-      return const Right(null);
+      return Right(entities);
     } catch (error, stackTrace) {
-      return Left(AuthUnexpectedFailure(error: error, stackTrace: stackTrace));
+      return Left(MenuFailure.unexpected(
+        error: error,
+        stackTrace: stackTrace,
+      ));
     }
   }
 }
@@ -448,12 +385,11 @@ class AuthRepositoryAdapter implements AuthRepository {
 
 ### Rules:
 
-- The Adapter translates technical errors into Domain Failures.
-- The Adapter converts DTOs to Entities (via mappers).
-- The Adapter must not return DTOs.
-- The Adapter must not expose raw exceptions.
-- The Adapter must not contain UI logic.
-- Every Adapter (`*RepositoryAdapter`) must implement at least one Port (`*Repository`) from `domain/repositories/`.
+- RepositoryImpl translates technical errors into domain Failures.
+- RepositoryImpl converts DTOs to Entities.
+- RepositoryImpl must not return DTOs.
+- RepositoryImpl must not expose raw exceptions.
+- RepositoryImpl must not contain UI logic.
 
 ### Datasources
 
@@ -462,39 +398,41 @@ Datasources are responsible for communicating with external sources.
 Example:
 
 ```dart
-abstract class AuthRemoteDataSource {
-  Future<UserDto> login({required String email, required String password});
-  Future<void> logout();
+abstract class MenuRemoteDataSource {
+  Future<List<MenuCombinationDto>> getPublishedMenus({
+    required DateTime date,
+  });
 }
 ```
 
 Implementation:
 
 ```dart
-class AuthApiRemoteDataSource implements AuthRemoteDataSource {
-  const AuthApiRemoteDataSource(this._client);
+class SupabaseMenuRemoteDataSource implements MenuRemoteDataSource {
+  const SupabaseMenuRemoteDataSource(this._client);
 
-  final AuthApiClient _client;
+  final SupabaseClient _client;
 
   @override
-  Future<UserDto> login({required String email, required String password}) async {
-    final json = await _client.post('/auth/login', body: {
-      'email': email,
-      'password': password,
-    });
+  Future<List<MenuCombinationDto>> getPublishedMenus({
+    required DateTime date,
+  }) async {
+    final response = await _client
+        .from('vw_published_menus')
+        .select()
+        .eq('published_date', date.toIso8601String());
 
-    return UserDto.fromJson(json);
+    return response
+        .map(MenuCombinationDto.fromJson)
+        .toList();
   }
-
-  @override
-  Future<void> logout() => _client.post('/auth/logout');
 }
 ```
 
 ### Rules:
 
 - Datasource may throw technical exceptions.
-- Datasource must not return Entities.
+- Datasource must not return entities.
 - Datasource returns DTOs or technical models.
 - Datasource does not decide business rules.
 - Datasource does not handle navigation.
@@ -507,22 +445,22 @@ DTOs represent the shape of external data.
 Example:
 
 ```dart
-class UserDto {
-  UserDto({
+class MenuCombinationDto {
+  const MenuCombinationDto({
     required this.id,
-    required this.email,
-    required this.displayName,
+    required this.mainDishName,
+    required this.availableDate,
   });
 
   final String id;
-  final String email;
-  final String displayName;
+  final String mainDishName;
+  final String availableDate;
 
-  factory UserDto.fromJson(Map<String, dynamic> json) {
-    return UserDto(
+  factory MenuCombinationDto.fromJson(Map<String, dynamic> json) {
+    return MenuCombinationDto(
       id: json['id'] as String,
-      email: json['email'] as String,
-      displayName: json['display_name'] as String,
+      mainDishName: json['main_dish_name'] as String,
+      availableDate: json['available_date'] as String,
     );
   }
 }
@@ -531,10 +469,10 @@ class UserDto {
 ### Rules:
 
 - DTOs may use freezed, json_serializable, or manual models.
-- DTOs live in `infrastructure/dtos/`.
-- DTOs must not reach Presentation.
-- DTOs must not be used by Application (UseCases).
-- DTOs must be mapped to Entities.
+- DTOs live in Data.
+- DTOs must not reach UI.
+- DTOs must not be used by UseCases.
+- DTOs must be mapped to entities.
 
 ### Mappers
 
@@ -543,12 +481,13 @@ Mappers transform DTOs into entities and vice versa when needed.
 Example:
 
 ```dart
-extension UserDtoMapper on UserDto {
-  User toEntity() {
-    return User(
+extension MenuCombinationDtoMapper on MenuCombinationDto {
+  MenuCombination toDomain() {
+    return MenuCombination(
       id: id,
-      email: email,
-      displayName: displayName,
+      mainDish: Product(name: mainDishName),
+      sideDish: null,
+      availableDate: DateTime.parse(availableDate),
     );
   }
 }
@@ -556,18 +495,18 @@ extension UserDtoMapper on UserDto {
 
 ### Rules:
 
-- The mapper must be close to Infrastructure.
+- The mapper must be close to Data.
 - The mapper may import Domain.
-- The mapper must not import Presentation.
-- The mapper must isolate technical API inconsistencies from the Domain.
+- The mapper must not import UI.
+- The mapper must isolate technical API inconsistencies from the domain.
 
 ---
 
-# 4. Presentation Layer
+# 3. UI / Presentation Layer
 
 ### Responsibility
 
-The `presentation` layer contains screens, widgets, Cubits/Blocs (state management), and navigation. It is the **driving side** of the hexagon.
+The `ui` or `presentation` layer contains screens, widgets, Cubits, Blocs, states, and events.
 
 Its responsibility is to present information and react to user interactions.
 
@@ -576,52 +515,54 @@ It does not contain deep business rules.
 ### May contain
 
 ```
-presentation/
+ui/
   screens/
   widgets/
-  state/        (cubit/bloc + state classes)
-  navigation/
+  cubit/
+  bloc/
+  state/
 ```
 
 Example:
 
 ```
-presentation/
+ui/
   screens/
-    login_screen.dart
+    menu_selection_screen.dart
 
   widgets/
-    login_form.dart
-    login_error_banner.dart
+    menu_combination_card.dart
+    menu_empty_state.dart
+    menu_loading_view.dart
 
-  state/
-    login_cubit.dart
-    login_state.dart
+  cubit/
+    menu_selection_cubit.dart
+    menu_selection_state.dart
 ```
 
-### Mandatory Presentation Rules
+### Mandatory UI Rules
 
-- Presentation must not import Infrastructure.
-- Presentation must not use Datasources.
-- Presentation must not use Repository Adapters.
-- Presentation must not use DTOs.
-- Presentation must not call APIs directly.
-- Presentation must communicate through Cubit/Bloc.
-- Cubit/Bloc calls Application UseCases.
+- UI must not import Data.
+- UI must not use Datasources.
+- UI must not use RepositoryImpl.
+- UI must not use DTOs.
+- UI must not call APIs directly.
+- UI must communicate through Cubit/Bloc.
+- Cubit/Bloc calls UseCases.
 - Widgets must not contain business logic.
 - Widgets must be small and composable.
 - Screens must delegate visual components to widgets.
-- Presentation must handle loading, empty, error, and success states.
+- UI must handle loading, empty, error, and success states.
 
 ## Correct Flow
 
 ```
 Screen
   → Cubit/Bloc
-    → UseCase (application)
-      → Repository Port (domain)
-        → Repository Adapter (infrastructure)
-          → DataSource (infrastructure)
+    → UseCase
+      → Abstract Repository
+        → RepositoryImpl
+          → DataSource
             → API / DB / Local Storage
 ```
 
@@ -629,13 +570,13 @@ Screen
 
 ```
 Screen
-  → Repository Adapter
+  → RepositoryImpl
 
 Screen
   → DataSource
 
 Widget
-  → ApiClient / SupabaseClient
+  → SupabaseClient
 
 Cubit
   → DTO
@@ -646,7 +587,7 @@ UseCase
 
 ---
 
-# 5. Bloc / Cubit (Presentation State Management)
+# 4. Bloc / Cubit
 
 ### Preference
 
@@ -661,14 +602,14 @@ Use `Bloc` when:
 
 ### Cubit Responsibility
 
-The Cubit coordinates the Presentation layer with the Application layer's UseCases.
+The Cubit coordinates the UI with the use cases.
 
 It may:
 
 - call use cases;
 - manage states;
 - transform domain results into visual state;
-- handle domain failures for the UI to present;
+- handle domain errors for the UI to present;
 - prepare data for the screen.
 
 It must not:
@@ -687,54 +628,68 @@ States must be explicit.
 Example:
 
 ```dart
-class LoginState extends Equatable {
-  const LoginState({
+class MenuSelectionState extends Equatable {
+  const MenuSelectionState({
     required this.status,
-    this.user,
+    required this.combinations,
+    this.selectedCombination,
     this.failureMessage,
   });
 
-  factory LoginState.initial() {
-    return const LoginState(status: LoginStatus.initial);
+  factory MenuSelectionState.initial() {
+    return const MenuSelectionState(
+      status: MenuSelectionStatus.initial,
+      combinations: [],
+    );
   }
 
-  final LoginStatus status;
-  final User? user;
+  final MenuSelectionStatus status;
+  final List<MenuCombination> combinations;
+  final MenuCombination? selectedCombination;
   final String? failureMessage;
 
-  LoginState loading() {
-    return copyWith(status: LoginStatus.loading);
+  MenuSelectionState loading() {
+    return copyWith(status: MenuSelectionStatus.loading);
   }
 
-  LoginState success(User user) {
+  MenuSelectionState success({
+    required List<MenuCombination> combinations,
+  }) {
     return copyWith(
-      status: LoginStatus.success,
-      user: user,
+      status: MenuSelectionStatus.success,
+      combinations: combinations,
       failureMessage: null,
     );
   }
 
-  LoginState failure(String message) {
+  MenuSelectionState failure(String message) {
     return copyWith(
-      status: LoginStatus.failure,
+      status: MenuSelectionStatus.failure,
       failureMessage: message,
     );
   }
 
-  LoginState copyWith({
-    LoginStatus? status,
-    User? user,
+  MenuSelectionState copyWith({
+    MenuSelectionStatus? status,
+    List<MenuCombination>? combinations,
+    MenuCombination? selectedCombination,
     String? failureMessage,
   }) {
-    return LoginState(
+    return MenuSelectionState(
       status: status ?? this.status,
-      user: user ?? this.user,
+      combinations: combinations ?? this.combinations,
+      selectedCombination: selectedCombination ?? this.selectedCombination,
       failureMessage: failureMessage ?? this.failureMessage,
     );
   }
 
   @override
-  List<Object?> get props => [status, user, failureMessage];
+  List<Object?> get props => [
+        status,
+        combinations,
+        selectedCombination,
+        failureMessage,
+      ];
 }
 ```
 
@@ -754,7 +709,7 @@ Use clear enums.
 Example:
 
 ```dart
-enum LoginStatus {
+enum MenuSelectionStatus {
   initial,
   loading,
   success,
@@ -773,37 +728,63 @@ enum LoginStatus {
 ### Cubit Example
 
 ```dart
-class LoginCubit extends Cubit<LoginState> {
-  LoginCubit({required LoginUseCase loginUseCase})
-      : _loginUseCase = loginUseCase,
-        super(LoginState.initial());
+class MenuSelectionCubit extends Cubit<MenuSelectionState> {
+  MenuSelectionCubit({
+    required GetPublishedMenusUseCase getPublishedMenusUseCase,
+    required SelectMenuCombinationUseCase selectMenuCombinationUseCase,
+  })  : _getPublishedMenusUseCase = getPublishedMenusUseCase,
+        _selectMenuCombinationUseCase = selectMenuCombinationUseCase,
+        super(MenuSelectionState.initial());
 
-  final LoginUseCase _loginUseCase;
+  final GetPublishedMenusUseCase _getPublishedMenusUseCase;
+  final SelectMenuCombinationUseCase _selectMenuCombinationUseCase;
 
-  Future<void> login({required String email, required String password}) async {
+  Future<void> loadMenus({
+    required DateTime date,
+  }) async {
     emit(state.loading());
 
-    final result = await _loginUseCase(
-      LoginParams(email: email, password: password),
+    final result = await _getPublishedMenusUseCase(date: date);
+
+    result.fold(
+      (failure) {
+        emit(state.failure(failure.message));
+      },
+      (combinations) {
+        if (combinations.isEmpty) {
+          emit(state.copyWith(status: MenuSelectionStatus.empty));
+          return;
+        }
+
+        emit(state.success(combinations: combinations));
+      },
+    );
+  }
+
+  Future<void> selectCombination(String combinationId) async {
+    emit(state.copyWith(status: MenuSelectionStatus.loading));
+
+    final result = await _selectMenuCombinationUseCase(
+      combinationId: combinationId,
     );
 
     result.fold(
       (failure) => emit(state.failure(failure.message)),
-      (user) => emit(state.success(user)),
+      (_) => emit(state.copyWith(status: MenuSelectionStatus.success)),
     );
   }
 }
 ```
 
-## 5.1 Communication Between Blocs / Cubits
+## 4.1 Communication Between Blocs / Cubits
 
 Blocs and Cubits must not know each other directly.
 
 ### Allowed
 
-- `BlocListener` in the Presentation layer that reacts to a Bloc's state and dispatches an event to another.
-- A shared UseCase (application layer) called independently by two different Blocs.
-- An `EventBus`-style abstraction (defined as a Domain Port, implemented in Infrastructure) to emit domain events that multiple Blocs can listen to.
+- `BlocListener` in the UI that reacts to a Bloc's state and dispatches an event to another.
+- A shared UseCase called independently by two different Blocs.
+- The `EventBus` from the `core_domain` package to emit domain events that multiple Blocs can listen to.
 
 ### Forbidden
 
@@ -815,11 +796,11 @@ Blocs and Cubits must not know each other directly.
 Correct example:
 
 ```dart
-// In the Presentation layer, BlocListener coordinates two Cubits without coupling them
-BlocListener<LoginCubit, LoginState>(
+// In the UI, BlocListener coordinates two Blocs without coupling them
+BlocListener<ScannerBloc, ScannerState>(
   listener: (context, state) {
-    if (state.status == LoginStatus.success) {
-      context.read<ProfileCubit>().loadProfile(state.user!.id);
+    if (state is ScannerSuccess) {
+      context.read<ProductBloc>().add(LoadProduct(state.barcode));
     }
   },
   child: ...,
@@ -829,19 +810,19 @@ BlocListener<LoginCubit, LoginState>(
 Forbidden example:
 
 ```dart
-// ❌ Cubit injecting another Cubit in its constructor
-class ProfileCubit extends Cubit<ProfileState> {
-  final LoginCubit loginCubit; // forbidden
+// ❌ Bloc injecting another Bloc in its constructor
+class ProductDimensionsBloc extends Bloc<...> {
+  final ProductListBloc productListBloc; // forbidden
 
-  void _onSave() {
-    loginCubit.refresh(); // forbidden
+  void _onSave(SaveEvent event, Emitter emit) {
+    productListBloc.add(ModifyProductEvent(...)); // forbidden
   }
 }
 ```
 
 ---
 
-# 6. Dependency Injection
+# 5. Dependency Injection
 
 ### Recommended Tool
 
@@ -850,11 +831,11 @@ Use `get_it`.
 Injection must respect this order:
 
 ```txt
-clients (infrastructure)
-  → datasources (infrastructure)
-    → repository adapters (infrastructure, implementing domain ports)
-      → usecases (application)
-        → cubits/blocs (presentation)
+clients
+  → datasources
+    → repositories
+      → usecases
+        → cubits/blocs
 ```
 
 Example:
@@ -864,28 +845,35 @@ final sl = GetIt.instance;
 
 Future<void> configureDependencies() async {
   // Clients
-  sl.registerLazySingleton<AuthApiClient>(
-    () => AuthApiClient(sl()),
+  sl.registerLazySingleton<SupabaseClient>(
+    () => Supabase.instance.client,
   );
 
   // Datasources
-  sl.registerLazySingleton<AuthRemoteDataSource>(
-    () => AuthApiRemoteDataSource(sl()),
+  sl.registerLazySingleton<MenuRemoteDataSource>(
+    () => SupabaseMenuRemoteDataSource(sl()),
   );
 
-  // Repository Adapters (registered against the Domain Port type)
-  sl.registerLazySingleton<AuthRepository>(
-    () => AuthRepositoryAdapter(remoteDataSource: sl()),
+  // Repositories
+  sl.registerLazySingleton<MenuRepository>(
+    () => MenuRepositoryImpl(remoteDataSource: sl()),
   );
 
   // UseCases
   sl.registerFactory(
-    () => LoginUseCase(sl()),
+    () => GetPublishedMenusUseCase(sl()),
+  );
+
+  sl.registerFactory(
+    () => SelectMenuCombinationUseCase(sl()),
   );
 
   // Cubits
   sl.registerFactory(
-    () => LoginCubit(loginUseCase: sl()),
+    () => MenuSelectionCubit(
+      getPublishedMenusUseCase: sl(),
+      selectMenuCombinationUseCase: sl(),
+    ),
   );
 }
 ```
@@ -893,64 +881,67 @@ Future<void> configureDependencies() async {
 ### Rules:
 
 - Do not manually instantiate use cases inside widgets.
-- Do not manually instantiate repository adapters inside Cubits.
+- Do not manually instantiate repositories inside Cubits.
 - Do not register implementations before their dependencies.
-- Do not use the service locator directly in Domain or Application.
+- Do not use the service locator directly in Domain.
 - Avoid `GetIt.I()` inside business logic.
-- Dependency composition must be centralized in `di/`.
+- Dependency composition must be centralized.
 
 ## GetIt Registration Lifecycle
 
 The registration type determines the instance lifecycle. Misusing it causes silent state bugs.
 
 ```
-Blocs and Cubits           → registerFactory        (fresh state on each use)
-UseCases                    → registerFactory        (stateless, cheap to create)
-Repository Adapters         → registerLazySingleton  (stateless, 1 instance is enough)
-DataSources                 → registerLazySingleton  (stateless)
-HTTP/Supabase clients       → registerLazySingleton  (1 global connection)
-Stateless services          → registerLazySingleton
+Blocs and Cubits         → registerFactory        (fresh state on each use)
+UseCases                 → registerFactory        (stateless, cheap to create)
+RepositoryImpl           → registerLazySingleton  (stateless, 1 instance is enough)
+DataSources              → registerLazySingleton  (stateless)
+HTTP/Supabase clients    → registerLazySingleton  (1 global connection)
+Stateless services       → registerLazySingleton
 ```
 
 ### Lifecycle Rules
 
-- `registerLazySingleton(() => XxxCubit(...))` **is forbidden**. A singleton Cubit persists its state across navigations and user sessions.
+- `registerLazySingleton(() => XxxBloc(...))` **is forbidden**. A singleton Bloc persists its state across navigations and user sessions.
 - `registerSingleton` for Blocs or Cubits **is forbidden** for the same reason.
 - Blocs and Cubits must be created with `registerFactory` to guarantee a clean initial state each time the screen instantiates them.
-- Use `BlocProvider` in the widget tree — not `sl.get<XxxCubit>()` inside `initState` or `build()`.
+- Use `BlocProvider` in the widget tree — not `sl.get<XxxBloc>()` inside `initState` or `build()`.
 
 Correct example:
 
 ```dart
 // DI
 sl.registerFactory(
-  () => LoginCubit(loginUseCase: sl()),
+  () => MenuSelectionCubit(
+    getPublishedMenusUseCase: sl(),
+    selectMenuCombinationUseCase: sl(),
+  ),
 );
 
 // Router or parent screen
 BlocProvider(
-  create: (_) => sl<LoginCubit>(),
-  child: LoginScreen(),
+  create: (_) => sl<MenuSelectionCubit>(),
+  child: MenuSelectionScreen(),
 )
 ```
 
 Forbidden example:
 
 ```dart
-// ❌ Cubit as singleton — state is never reset
-sl.registerLazySingleton(() => LoginCubit(...));
+// ❌ Bloc as singleton — state is never reset
+sl.registerLazySingleton(() => MenuSelectionCubit(...));
 
 // ❌ GetIt inside initState or build
 @override
 void initState() {
   super.initState();
-  _cubit = sl.get<LoginCubit>(); // forbidden
+  _cubit = sl.get<MenuSelectionCubit>(); // forbidden
 }
 ```
 
 ---
 
-# 7. Routing
+# 6. Routing
 
 ### Responsibility
 
@@ -969,7 +960,7 @@ GoRouter
 - Routes must be declarative.
 - Do not pass complex objects through routes unnecessarily.
 - Avoid relying on `history.state` for critical information.
-- For session data, prefer controlled storage or global state injected via Domain Ports.
+- For session data, prefer controlled storage or global state.
 - Role-based navigation must be decided using authenticated profile information.
 - Guards must be simple and predictable.
 
@@ -978,17 +969,17 @@ Role-based navigation example:
 ```
 auth success
   → fetch profile
-    → role == admin
-      → AdminHomeScreen
-    → role == member
-      → MemberHomeScreen
+    → role == company_admin
+      → CompanyAdminHomeScreen
+    → role == employee
+      → EmployeeHomeScreen
     → role == guest
       → GuestHomeScreen
 ```
 
 ---
 
-# 8. Design System and UI
+# 7. Design System and UI
 
 ### Primary Rule
 
@@ -1011,7 +1002,7 @@ robust
 
 - Use the application theme.
 - Use Design System tokens.
-- Use the app's responsive sizing utility (`DSResponsive` or equivalent) for dimensions when available.
+- Use `DSResponsive` for dimensions when available.
 - Do not hardcode colors.
 - Do not hardcode sizes when tokens are available.
 - Do not create isolated styles if a component or token already exists.
@@ -1029,11 +1020,11 @@ robust
 - Buttons must have disabled/loading states.
 - Widgets must be reusable.
 
-### Forbidden in Presentation
+### Forbidden in UI
 
 - Putting business logic inside `build`.
 - Making HTTP calls from a widget.
-- Querying Supabase/Firebase/Dio directly from Presentation.
+- Querying Supabase/Firebase/Dio directly from UI.
 - Creating loose colors without a token.
 - Duplicating existing Design System components.
 - Using technical text for user-facing errors.
@@ -1041,17 +1032,17 @@ robust
 
 ---
 
-# 9. Error Handling
+# 8. Error Handling
 
 ### Recommended Pattern
 
-Use `Failure` in Domain.
+Use Failure in Domain.
 
 Example:
 
 ```dart
-sealed class AuthFailure extends Equatable {
-  const AuthFailure();
+sealed class MenuFailure extends Equatable {
+  const MenuFailure();
 
   String get message;
 
@@ -1059,22 +1050,18 @@ sealed class AuthFailure extends Equatable {
   List<Object?> get props => [];
 }
 
-class InvalidCredentialsFailure extends AuthFailure {
-  const InvalidCredentialsFailure();
+class MenuNetworkFailure extends MenuFailure {
+  const MenuNetworkFailure();
 
   @override
-  String get message => 'Invalid email or password.';
+  String get message => 'We could not load the menus. Check your connection.';
 }
 
-class AuthNetworkFailure extends AuthFailure {
-  const AuthNetworkFailure();
-
-  @override
-  String get message => 'We could not reach the server. Check your connection.';
-}
-
-class AuthUnexpectedFailure extends AuthFailure {
-  const AuthUnexpectedFailure({this.error, this.stackTrace});
+class MenuUnexpectedFailure extends MenuFailure {
+  const MenuUnexpectedFailure({
+    this.error,
+    this.stackTrace,
+  });
 
   final Object? error;
   final StackTrace? stackTrace;
@@ -1086,13 +1073,13 @@ class AuthUnexpectedFailure extends AuthFailure {
 
 ### Rules:
 
-- Infrastructure captures technical errors.
-- Infrastructure (Adapters) transforms technical errors into Domain Failures.
-- Domain exposes Failures via Ports.
-- Cubit translates Failures into Presentation state.
-- Presentation shows understandable messages.
+- Data captures technical errors.
+- Data transforms technical errors into Failures.
+- Domain exposes Failures.
+- Cubit translates Failures into states.
+- UI shows understandable messages.
 - Do not show stack traces to the user.
-- Do not leak technical exceptions into Presentation.
+- Do not leak technical exceptions into the UI.
 
 ## Typed Either — Mandatory Rule
 
@@ -1100,7 +1087,8 @@ Every `Either` representing a business result **must have its left type bound to
 
 ```dart
 // Correct — the compiler guarantees L is a concrete Failure
-Future<Either<AuthFailure, User>> login({required String email, required String password});
+Future<Either<MenuFailure, List<MenuCombination>>> getPublishedMenus();
+Future<Either<Failure, User>> login(Credentials creds);
 
 // Forbidden — free generics nullify the contract
 Future<Either<L, R>> call<L, R>();  // L can be any type
@@ -1109,39 +1097,39 @@ Future<Either<dynamic, dynamic>> call();
 
 ### Rules:
 
-- `L` in `Either<L, R>` **must always** be a subtype of `Failure`.
-- **Forbidden**: `Either<L, R>` with `L` and `R` as unbound type parameters in Domain Ports, Application UseCases, and Infrastructure Adapters/DataSources.
+- `L` in `Either<L, R>` **must always** be a subtype of `Failure` from the `core_domain` package.
+- **Forbidden**: `Either<L, R>` with `L` and `R` as unbound type parameters in UseCases, Repositories, and DataSources.
 - The Cubit must be able to call `.fold((Failure f) ..., (T value) ...)` with type safety and without casts.
 
 ---
 
-# 10. Testing
+# 9. Testing
 
 ### Test Priority
 
 ```
-UseCases (application)
-Repository Adapters (infrastructure)
-Cubits/Blocs (presentation)
-Mappers (infrastructure)
-Critical Widgets (presentation)
+UseCases
+Repositories
+Cubits/Blocs
+Mappers
+Critical Widgets
 ```
 
 ### UseCase Tests
 
 Validate:
 
-- that they call the correct Domain Port (Repository);
-- that they propagate `Right` correctly;
-- that they propagate `Left` correctly;
-- that they do not depend on Infrastructure.
+- that they call the correct repository;
+- that they propagate Right correctly;
+- that they propagate Left correctly;
+- that they do not depend on Data.
 
-### Repository Adapter Tests
+### RepositoryImpl Tests
 
 Validate:
 
 - that it invokes the datasource;
-- that it converts DTOs to Entities;
+- that it converts DTOs to entities;
 - that it translates errors to Failures;
 - that it does not expose raw exceptions.
 
@@ -1159,84 +1147,84 @@ Validate:
 
 ### Rules
 
-- Use clear mocks/fakes (mock the Domain Port, not the Adapter's internals).
+- Use clear mocks/fakes.
 - Do not test irrelevant details.
 - Do not depend on real external services.
 - Tests must document behavior, not accidental implementation.
 
 ---
 
-# 11. Project Structure
+# 10. Monorepo
 
-This is a **standalone Flutter app** (not a melos monorepo). The structure is:
+### Compatibility
+
+The architecture must adapt to monorepos with apps and packages.
+
+Example:
 
 ```
-lib/
-  core/                 (shared utilities, theme, design system tokens, base classes)
-  features/
-    login/
-      domain/
-      application/
-      infrastructure/
-      presentation/
-      di/
+apps/
+  lunch_flow_app/
 
-    <feature_name>/
-      domain/
-      application/
-      infrastructure/
-      presentation/
-      di/
-
-tools/
-  architecture_check.dart
-  technical_debt_metrics.dart
-
-specs/
-  <feature_name>/
-    spec.md
-    plan.md
-    tasks.md
-    quickstart.md
-  templates/
-
-.ai/
-  context/
-  agents/
-  workflows/
-  architecture-policies.yaml
+packages/
+  core_network/
+  core_storage/
+  design_system/
+  core_domain/
+  lint_rules/
 ```
 
-### Project Structure Rules
+### Monorepo Rules
 
-- A feature must be as independent as possible from other features.
-- Shared code (theme, design system, generic Failure base classes, base UseCase interface, generic Either helpers) lives in `lib/core/`.
-- `lib/core/` must not depend on any `lib/features/<feature>/`.
-- Features may depend on `lib/core/`, never the reverse.
+- Apps consume packages.
+- Shared packages must not depend on apps.
+- `design_system` must not depend on features.
+- `core_network` must not depend on UI.
+- `core_domain` must not depend on Data.
+- Reusable features may live as a package when there is a real need for reuse.
+- Do not move a feature to a package before a real reuse need exists.
 
-### Note on Policy Engine Scopes
+### Allowed Dependencies
 
-The governance tooling (`tools/technical_debt_metrics.dart` + `.ai/architecture-policies.yaml`) supports four generic scopes: `feature`, `app`, `package`, `monorepo`. In this standalone app:
+```
+app
+  → features
+  → design_system
+  → core packages
+```
 
-- `feature` → a directory under `lib/features/<feature_name>/`.
-- `app` → the whole app (`lib/`).
-- `package` and `monorepo` → **informational/forward-looking only**. They are part of the generic policy vocabulary in case this app is ever split into a monorepo with shared packages, but there is no monorepo structure today — do not invent `apps/`/`packages/` directories that don't exist.
+```
+feature
+  → core_domain
+  → core_failure
+```
+
+### Forbidden Dependencies
+
+```
+design_system → app
+core_network → ui
+core_domain → data
+domain → supabase
+domain → dio
+ui → datasource
+ui → repository_impl
+```
 
 ---
 
-# 12. Naming Conventions
+# 11. Naming Conventions
 
 ### Files
 
 Use snake_case.
 
 ```
-login_usecase.dart
-auth_repository.dart
-auth_repository_adapter.dart
-auth_remote_datasource.dart
-login_cubit.dart
-login_state.dart
+get_published_menus_usecase.dart
+menu_repository_impl.dart
+menu_remote_datasource.dart
+menu_selection_cubit.dart
+menu_selection_state.dart
 ```
 
 ### Classes
@@ -1244,12 +1232,11 @@ login_state.dart
 Use PascalCase.
 
 ```
-LoginUseCase
-AuthRepository
-AuthRepositoryAdapter
-AuthRemoteDataSource
-LoginCubit
-LoginState
+GetPublishedMenusUseCase
+MenuRepositoryImpl
+MenuRemoteDataSource
+MenuSelectionCubit
+MenuSelectionState
 ```
 
 ### Variables and Methods
@@ -1257,86 +1244,76 @@ LoginState
 Use lowerCamelCase.
 
 ```
-loginUseCase
-selectedUser
-isAuthenticated
+getPublishedMenus
+selectedCombination
+isPrimaryBranch
 ```
 
 ### Expected Suffixes
 
 ```
-UseCase           (PascalCase in class, _usecase.dart in file)   → application/usecases/
-Repository        (Port, abstract)                                → domain/repositories/
-RepositoryAdapter (Adapter, implementation)                        → infrastructure/repositories/
+UseCase         (PascalCase in class, _usecase.dart in file)
+Repository
+RepositoryImpl
 RemoteDataSource
 LocalDataSource
-Dto                                                                 → infrastructure/dtos/
-Mapper                                                              → infrastructure/mappers/
+Dto
+Mapper
 Cubit
 Bloc
 State
 Event
-Failure                                                             → domain/failures/
+Failure
 ```
 
 ### UseCase Naming Consistency Rule
 
-- The class always ends in `UseCase` (PascalCase): `LoginUseCase`.
-- The file always ends in `_usecase.dart` (snake_case): `login_usecase.dart`.
+- The class always ends in `UseCase` (PascalCase): `GetPublishedMenusUseCase`.
+- The file always ends in `_usecase.dart` (snake_case): `get_published_menus_usecase.dart`.
 - **Forbidden** to mix `Usecase`, `usecase`, and `UseCase` in the same project.
-- Names must be semantic and action-oriented. See examples in section 2.
-
-### Port / Adapter Naming Consistency Rule
-
-- A Port is named `XRepository` and lives in `domain/repositories/x_repository.dart`.
-- Its Adapter is named `XRepositoryAdapter` and lives in `infrastructure/repositories/x_repository_adapter.dart`.
-- **Forbidden**: an Adapter without a corresponding Port; a Port with more than one canonical Adapter active at the same time in production code (test fakes are exempt).
-
-### Entity Trap
-
-Domain Entities (`domain/entities/*.dart`) must NOT carry technical suffixes: `Dto`, `Model`, `Response`, `Entity`, `Vo`. A `User` is a `User`, not a `UserEntity` or `UserModel`.
+- Names must be semantic and action-oriented. See examples in section 1.
 
 ---
 
-# 13. Anti-Coupling Rules
+# 12. Anti-Coupling Rules
 
 ## Prohibition of Static Global Access
 
 Static access to configuration, preferences, or environment variables inside internal layers violates Dependency Inversion and makes code untestable.
 
-### Forbidden in Domain, Application, and Infrastructure
+### Forbidden in Domain and Data
 
 ```dart
-// ❌ Static access in a DataSource
-final branchId = AppPreferences.branchId; // forbidden
+// ❌ Static access in DataSource
+final branchId = PreferencesApp.sucursal; // forbidden
 final url = dotenv.env['SERVER_URL']!;    // forbidden
 final dni = SharedPreferences.getString('dni'); // forbidden
 ```
 
 ### Correct Approach
 
-Define a Port in Domain and inject it:
+Define an interface in Domain or in the shared package and inject it:
 
 ```dart
-// Domain
-abstract class ISessionInfo {
-  String get userId;
-  String get branchId;
+// Domain or core_domain
+abstract class IUserSession {
+  String get sucursal;
+  String get dni;
 }
 
-// Infrastructure — Adapter receives the Port via constructor
-class AuthApiRemoteDataSource implements AuthRemoteDataSource {
-  const AuthApiRemoteDataSource({
-    required this.client,
+// Data — DataSource receives the interface via constructor
+class StockApiDatasourceImpl implements StockApiDatasource {
+  const StockApiDatasourceImpl({
+    required this.http,
     required this.session,
   });
 
-  final AuthApiClient client;
-  final ISessionInfo session;
+  final DioAdapter http;
+  final IUserSession session;
 
   @override
-  Future<UserDto> login({required String email, required String password}) async {
-    final body = {'email': email, 'password': password, 'branch_id': session.branchId};
+  Future<Either<StockFailure, List<Article>>> getAll() async {
+    final data = {'branch_id': session.sucursal};
     // ...
   }
 }
@@ -1344,49 +1321,42 @@ class AuthApiRemoteDataSource implements AuthRemoteDataSource {
 
 ### Critical Rule
 
-Presentation does not access Infrastructure.
+UI does not access Data.
 
 These imports are forbidden:
 
 ```dart
-import 'package:app/features/login/infrastructure/repositories/auth_repository_adapter.dart';
-import 'package:app/features/login/infrastructure/datasources/auth_remote_datasource.dart';
-import 'package:app/features/login/infrastructure/dtos/user_dto.dart';
+import 'package:app/features/menu/data/repositories/menu_repository_impl.dart';
+import 'package:app/features/menu/data/datasources/menu_remote_datasource.dart';
+import 'package:app/features/menu/data/dtos/menu_combination_dto.dart';
 ```
 
 Inside any of:
 
 ```
+ui/
 presentation/
 screens/
 widgets/
-state/
+cubit/
+bloc/
 ```
 
 ### Also Forbidden
 
-Domain importing Application, Infrastructure, or Presentation:
+Domain importing Data:
 
 ```dart
-import '../../application/...';
-import '../../infrastructure/...';
-import '../../presentation/...';
+import '../../data/...';
 ```
 
-Application importing Infrastructure or Presentation:
+Data importing UI:
 
 ```dart
-import '../../infrastructure/...';
-import '../../presentation/...';
+import '../../ui/...';
 ```
 
-Infrastructure importing Presentation:
-
-```dart
-import '../../presentation/...';
-```
-
-`lib/core/` importing `lib/features/...`:
+Core packages importing features:
 
 ```dart
 import 'package:app/features/...';
@@ -1394,104 +1364,97 @@ import 'package:app/features/...';
 
 ---
 
-# 14. Fitness Functions
+# 13. Fitness Functions
 
-Architectural rules are **automatically verified** through the project's tooling.
+Architectural rules are **automatically verified** through two complementary mechanisms:
 
-## 14.1 Validation Script (`tools/architecture_check.dart`)
+## 13.1 Validation Script (`tools/architecture_check.dart`)
 
 Run with:
 
 ```bash
-dart run tools/architecture_check.dart
-dart run tools/architecture_check.dart --path lib/features/login
+melos run check:arch
 ```
 
 Returns exit code 1 if violations are found, enabling CI integration. Validates:
 
-### Rule 1 — Presentation cannot import Infrastructure
+### Rule 1 — UI cannot import Data
 
 ```
-No file under */presentation/**/*.dart may import from */infrastructure/
+No file under */ui/**/*.dart may import from */data/
 ```
 
-### Rule 2 — Domain cannot import Application, Infrastructure, or Presentation
+### Rule 2 — Domain cannot import Data or UI
 
 ```
-No file under */domain/**/*.dart may import from */application/, */infrastructure/, or */presentation/
+No file under */domain/**/*.dart may import from */data/ or */ui/
 ```
 
-### Rule 3 — Application cannot import Infrastructure or Presentation
+### Rule 3 — Data cannot import UI
 
 ```
-No file under */application/**/*.dart may import from */infrastructure/ or */presentation/
+No file under */data/**/*.dart may import from */ui/ or */presentation/
 ```
 
-### Rule 4 — Infrastructure cannot import Presentation
+### Rule 4 — DTOs cannot appear outside Data
 
 ```
-No file under */infrastructure/**/*.dart may import from */presentation/
+Classes with the Dto suffix may only exist inside */data/
 ```
 
-### Rule 5 — DTOs cannot appear outside Infrastructure
+### Rule 5 — RepositoryImpl cannot be used from UI
 
 ```
-Classes with the Dto suffix may only exist inside */infrastructure/
+Classes with the RepositoryImpl suffix cannot be imported by UI
 ```
 
-### Rule 6 — RepositoryAdapter cannot be used from Presentation
+### Rule 6 — GetIt is forbidden in UI/Bloc
 
 ```
-Classes with the RepositoryAdapter suffix cannot be imported by Presentation
+Calls to sl.get<> or sl() cannot appear in files under */ui/, */screens/, */widgets/, */cubit/, */bloc/
 ```
 
-### Rule 7 — GetIt is forbidden in Presentation
+### Rule 7 — Blocs cannot be registered as LazySingleton
 
 ```
-Calls to sl.get<> or sl() cannot appear in files under */presentation/, */screens/, */widgets/, */state/
+registerLazySingleton with a factory returning a Bloc or Cubit type is forbidden
 ```
 
-### Rule 8 — Cubits/Blocs cannot be registered as LazySingleton
+### Rule 8 — Either with free generics is forbidden in Domain and Data
 
 ```
-registerLazySingleton with a factory returning a Cubit or Bloc type is forbidden
+The pattern Either<L, R> with free type parameters cannot appear in */domain/ or */data/
 ```
 
-### Rule 9 — Either with free generics is forbidden in Domain, Application, and Infrastructure
+### Rule 9 — UseCase files must follow naming convention (AST)
 
 ```
-The pattern Either<L, R> with free type parameters cannot appear in */domain/, */application/, or */infrastructure/
+Files named *_usecase.dart must declare a class ending in UseCase
 ```
 
-### Rule 10 — UseCase files must follow naming convention (AST)
+### Rule 10 — RepositoryImpl must implement a Repository (AST)
 
 ```
-Files named *_usecase.dart must declare a class ending in UseCase, located under */application/usecases/
+Classes ending in RepositoryImpl must implement at least one interface ending in Repository
 ```
 
-### Rule 11 — RepositoryAdapter must implement a Repository Port (AST)
-
-```
-Classes ending in RepositoryAdapter must implement at least one interface ending in Repository
-```
-
-### Rule 12 — Cubit/Bloc must not depend on other Cubit/Bloc in constructor (AST)
+### Rule 11 — Cubit/Bloc must not depend on other Cubit/Bloc in constructor (AST)
 
 ```
 Constructor parameters of a Cubit/Bloc class must not be of type Cubit or Bloc
 ```
 
-### Rule 13 — Datasource must not return Entity types (AST)
+### Rule 12 — Datasource must not return Entity types (AST)
 
 ```
-Methods in classes ending in DataSource must not return Domain Entity types — they must return DTOs or technical models
+Methods in classes ending in DataSource must not return Entity types
 ```
 
-The authoritative, currently-implemented set of rules lives in `tools/architecture_check.dart`. Any rule listed above that is not yet automatable is documented there as a `// TODO:` and does not break script execution.
+## 13.2 Real-Time Lint Rules (`packages/lint_rules`)
 
-## 14.2 Real-Time Lint Rules (optional, future work)
+The `lint_rules` package uses `custom_lint` to surface errors directly in the IDE and in `dart analyze`.
 
-If the project later adds a `custom_lint`-based package, activate it in `analysis_options.yaml`:
+Activate in each app's `analysis_options.yaml`:
 
 ```yaml
 analyzer:
@@ -1499,30 +1462,29 @@ analyzer:
     - custom_lint
 custom_lint:
   rules:
-    - avoid_get_it_in_presentation
-    - avoid_cubit_as_lazy_singleton
+    - avoid_get_it_in_ui
+    - avoid_bloc_as_lazy_singleton
     - avoid_untyped_either
-    - avoid_direct_cubit_dependency
+    - avoid_direct_bloc_dependency
 ```
+
+Available rules:
 
 | Rule | Detects | Severity |
 |---|---|---|
-| `avoid_get_it_in_presentation` | `sl.get<>()` in Presentation/Cubit/Bloc files | error |
-| `avoid_cubit_as_lazy_singleton` | `registerLazySingleton` returning Cubit/Bloc | warning |
+| `avoid_get_it_in_ui` | `sl.get<>()` in UI/Bloc/Cubit files | error |
+| `avoid_bloc_as_lazy_singleton` | `registerLazySingleton` returning Bloc/Cubit | warning |
 | `avoid_untyped_either` | `Either<L, R>` with free generics | error |
-| `avoid_direct_cubit_dependency` | Field of type Cubit/Bloc inside another Cubit/Bloc | warning |
-
-This package does not exist yet in this standalone app — it is documented here as a TODO for when/if real-time IDE linting is introduced. The static checks in `tools/architecture_check.dart` are authoritative today.
+| `avoid_direct_bloc_dependency` | Field of type Bloc/Cubit inside another Bloc/Cubit | warning |
 
 ---
 
-# 14.3 Technical Debt Metrics (`tools/technical_debt_metrics.dart`)
+# 13.3 Technical Debt Metrics (`tools/technical_debt_metrics.dart`)
 
 Run with:
 
 ```bash
-dart run tools/technical_debt_metrics.dart
-dart run tools/technical_debt_metrics.dart --path lib/features/login
+melos run check:debt
 ```
 
 Always exits 0 (reporting only — does not block CI). Produces a structured report per scope.
@@ -1537,7 +1499,7 @@ Always exits 0 (reporting only — does not block CI). Produces a structured rep
 | CC | Cyclomatic Complexity (per function) |
 | CogC | Cognitive Complexity — Sonar/Richards model (per function) |
 | Nesting | Max nesting depth (per function) |
-| Ca | Afferent coupling — inbound imports |
+| Ca | Afferent coupling — inbound imports (functional / technical split) |
 | Ce | Efferent coupling — outbound imports |
 | I | Instability = Ce / (Ca + Ce) |
 | A | Abstractness = abstract classes / total classes |
@@ -1548,10 +1510,12 @@ Always exits 0 (reporting only — does not block CI). Produces a structured rep
 
 | Scope | Example |
 |---|---|
-| `feature` | A single feature under `lib/features/<feature_name>/` |
-| `app` | The whole app (`lib/`) |
-| `package` | Reserved for a future shared package (not used today) |
-| `monorepo` | Reserved for a future monorepo root (not used today) |
+| `feature` | A single feature package |
+| `app` | An app package |
+| `package` | A shared package |
+| `appsGroup` | All apps |
+| `packagesGroup` | All packages |
+| `monorepo` | Entire repository |
 
 ### Thresholds
 
@@ -1563,34 +1527,33 @@ Always exits 0 (reporting only — does not block CI). Produces a structured rep
 
 ---
 
-# 14.4 Policy Engine
+# 13.4 Policy Engine
 
 The Policy Engine applies context-aware thresholds to metrics. Default policy file: `.ai/architecture-policies.yaml`.
 
 ```bash
-dart run tools/technical_debt_metrics.dart --policy .ai/architecture-policies.yaml
+melos run check:debt -- --policy .ai/architecture-policies.yaml
 ```
 
 ### Policy scopes
 
 Each scope (`feature`, `app`, `package`, `monorepo`) may define independent thresholds for:
 
-- `cognitive_complexity.maximum.{warning,error}`
-- `nesting_depth.maximum.{warning,error}`
-- `cyclomatic_complexity.maximum.{warning,error}`
-- `size.loc.{warning,error}`
-- `coupling.{ce,instability}.{warning,error}`
-- `abstraction.distance.{warning,error,mode}`
+- `cc.warning`, `cc.error`
+- `cogc.warning`, `cogc.error`
+- `nesting.warning`, `nesting.error`
+- `instability.warning`, `instability.error`
+- `abstraction.distance.warning`, `abstraction.distance.error`, `abstraction.distance.mode`
 
 ### Enforcement modes
 
 | Mode | Behavior |
 |---|---|
-| `report_only` | Prints policy evaluation, never fails |
-| `fail_on_error` | Exits non-zero when any error threshold is exceeded |
-| `fail_on_regression` | Exits non-zero only when a metric regressed vs. baseline |
+| `reportOnly` | Prints policy evaluation, never fails |
+| `failOnError` | Exits non-zero when any error threshold is exceeded |
+| `failOnRegression` | Exits non-zero only when a metric regressed vs. baseline |
 
-Default: `report_only` for all scopes — **this is enforced as a non-blocking governance signal, not a CI gate**, in this app.
+Default: `reportOnly` for all scopes.
 
 ### Distance interpretation
 
@@ -1598,16 +1561,16 @@ Default: `report_only` for all scopes — **this is enforced as a non-blocking g
 
 ---
 
-# 14.5 Evolutionary Baselines
+# 13.5 Evolutionary Baselines
 
 Baselines capture a metric snapshot for comparison over time.
 
 ```bash
 # Export a baseline
-dart run tools/technical_debt_metrics.dart --path lib/features/login --export-baseline
+melos run check:debt -- --export-baseline
 
 # Compare against a baseline
-dart run tools/technical_debt_metrics.dart --path lib/features/login --compare-baseline
+melos run check:debt -- --compare-baseline
 ```
 
 ### Baseline storage
@@ -1615,12 +1578,13 @@ dart run tools/technical_debt_metrics.dart --path lib/features/login --compare-b
 ```
 .ai/architecture-baselines/
   features/
-    login.metrics.json
+    <app-name>/
+      <feature-name>.metrics.json
   apps/
-    hex_app.metrics.json
+    <app-name>.metrics.json
   packages/
-    <package-name>.metrics.json   (reserved, not used today)
-  monorepo.metrics.json           (reserved, not used today)
+    <package-name>.metrics.json
+  monorepo.metrics.json
 ```
 
 ### Baseline format (v1)
@@ -1629,22 +1593,22 @@ dart run tools/technical_debt_metrics.dart --path lib/features/login --compare-b
 {
   "version": 1,
   "scope": "feature",
-  "name": "login",
-  "exportedAt": "2026-01-01T00:00:00Z",
-  "metrics": { "loc": 320, "cc_avg": 2.1, "cogc_max": 12 },
+  "name": "signature_capture",
+  "exportedAt": "2026-05-01T00:00:00Z",
+  "metrics": { "loc": 712, "cc_avg": 3.2, "cogc_max": 25, ... },
   "hotspots": [
-    { "function": "LoginCubit::login", "cc": 4, "cogc": 6, "nesting": 2 }
+    { "function": "_SignatureCaptureViewState::build", "cc": 12, "cogc": 25, "nesting": 4 }
   ]
 }
 ```
 
 ### Delta report
 
-The comparison shows metric diffs plus hotspot changes with directional indicators (▲ regression / ▼ improvement / = unchanged).
+The comparison shows 12-metric diffs plus hotspot changes with directional indicators (▲ regression / ▼ improvement / = unchanged).
 
 ---
 
-# 14.6 Spec-Driven Development
+# 13.6 Spec-Driven Development
 
 Spec-Driven Development (SDD) is the practice of writing an explicit, reviewable specification before implementation begins. It is not a documentation exercise — it is the primary context source for AI agents and human developers.
 
@@ -1654,7 +1618,7 @@ Spec-Driven Development (SDD) is the practice of writing an explicit, reviewable
 spec → plan → tasks → implementation → validation
 ```
 
-Never implement against a verbal requirement.
+Never implement against a verbal requirement.  
 Always implement against a written, approved spec.
 
 ## Feature Levels
@@ -1669,120 +1633,118 @@ Always implement against a written, approved spec.
 
 ```
 specs/
-  <feature_name>/
-    spec.md
-    plan.md
-    tasks.md
-    quickstart.md
+  <app_name>/
+    <feature_name>/
+      spec.md
+      plan.md
+      tasks.md
+      quickstart.md
 
   templates/
     spec.template.md
-    plan.template.md
-    tasks.template.md
-    quickstart.template.md
+    plan.md
+    tasks.md
+    quickstart.md
 ```
 
 ## Integration with AI Agents
 
 | Agent | Reads | Produces |
 |---|---|---|
-| `architect.agent.md` | `spec.md` + context files | `plan.md` (Domain/Application/Infrastructure/Presentation design) |
+| `architect.agent.md` | `spec.md` + context files | `plan.md` |
 | `feature-builder.agent.md` | `plan.md` + `tasks.md` + context files | Implementation |
 | `reviewer.agent.md` | `spec.md` + `plan.md` + context files | Review with spec compliance table |
 
 ## Integration with Governance
 
 - `plan.md` must reference the current baseline from `.ai/architecture-baselines/`.
-- `tasks.md` must include a validation block: `architecture_check` + `technical_debt_metrics` + baseline comparison.
+- `tasks.md` must include a validation block: `check:arch` + `check:debt` + baseline comparison.
 - `quickstart.md` must cover all acceptance criteria from `spec.md` as test scenarios.
 - Reviewer must produce a spec compliance table mapping each criterion to an implementation status.
 
 ---
 
-# 15. Rules for AI Agents
+# 14. Rules for AI Agents
 
 When an agent works on this project it must:
 
 - read this file before modifying any code;
-- respect the existing structure (`domain/application/infrastructure/presentation/di`);
-- not invent new architecture or layer names;
+- respect the existing structure;
+- not invent new architecture;
 - not rename folders without justification;
 - not move logic between layers without explaining why;
-- not touch Infrastructure when the task is Presentation-only;
-- not touch Presentation when the task is Domain/Application/Infrastructure-only;
-- not create DTOs in Presentation;
+- not touch Data when the task is UI-only;
+- not touch UI when the task is Domain/Data-only;
+- not create DTOs in UI;
 - not create business logic in widgets;
 - not create circular dependencies;
 - not hardcode visual styles;
 - not replace existing patterns with personal preferences;
-- not write "demo" code in production screens;
-- not implement a Repository Adapter without first defining its Domain Port.
+- not write "demo" code in production screens.
 
 ---
 
-# 16. Pre-Completion Checklist
+# 15. Pre-Completion Checklist
 
 Before considering a feature done, validate:
 
 ```
-[ ] Presentation does not import Infrastructure.
-[ ] Domain does not import Application, Infrastructure, or Presentation.
-[ ] Application does not import Infrastructure or Presentation.
-[ ] Infrastructure does not import Presentation.
-[ ] UseCases depend on Domain Ports (abstract repositories).
-[ ] RepositoryAdapter implements a Domain Repository (Port).
-[ ] DTOs do not leave Infrastructure.
+[ ] UI does not import Data.
+[ ] Domain does not import Data or UI.
+[ ] Data does not import UI.
+[ ] UseCases depend on abstract repositories.
+[ ] RepositoryImpl implements a Domain repository.
+[ ] DTOs do not leave Data.
 [ ] There are mappers between DTOs and Entities.
-[ ] Cubit/Bloc does not call datasources or adapters directly — only UseCases.
-[ ] Presentation handles loading, empty, error, and success states.
+[ ] Cubit/Bloc does not call datasources.
+[ ] UI handles loading, empty, error, and success states.
 [ ] Technical errors are transformed into Failures.
 [ ] Either<L, R> uses a concrete L as a subtype of Failure (no free generics).
-[ ] Dependency injection respects the correct order (clients → datasources → adapters → usecases → cubits).
-[ ] Cubits and Blocs registered with registerFactory, not registerLazySingleton.
-[ ] No sl.get<>() inside Cubits, Blocs, Screens, or Widgets.
-[ ] No static access to preferences/dotenv inside Domain, Application, or Infrastructure.
-[ ] Cubits do not have direct dependencies on other Cubits in their constructor.
-[ ] Names follow conventions (UseCase suffix in PascalCase, _usecase.dart file; RepositoryAdapter implementing Repository).
+[ ] Dependency injection respects the correct order.
+[ ] Blocs and Cubits registered with registerFactory, not registerLazySingleton.
+[ ] No sl.get<>() inside Blocs, Cubits, Screens, or Widgets.
+[ ] No static access to PreferencesApp/dotenv inside Domain or Data.
+[ ] Blocs do not have direct dependencies on other Blocs in their constructor.
+[ ] Names follow conventions (UseCase suffix in PascalCase, _usecase.dart file).
 [ ] No heavy business logic in widgets.
 [ ] No hardcoded styles when a Design System exists.
-[ ] Tests exist at least for critical use cases, cubits, or repository adapters.
-[ ] dart run tools/architecture_check.dart passes with no errors.
-[ ] dart run tools/technical_debt_metrics.dart reviewed — no unacceptable regressions vs. baseline.
+[ ] Tests exist at least for critical use cases, cubits, or repositories.
+[ ] melos run check:arch passes with no errors.
+[ ] melos run check:debt reviewed — no unacceptable regressions vs. baseline.
 ```
 
 ---
 
-# 17. Default Decisions
+# 16. Default Decisions
 
 When in doubt, apply these decisions:
 
 ```
-Simple state                → Cubit
-Complex/event-driven state  → Bloc
-External data               → DataSource (infrastructure)
-Business action              → UseCase (application)
-Pure business rule           → Domain Rule (domain/rules)
-Business contract            → Repository Port (domain, abstract)
-Technical implementation      → RepositoryAdapter (infrastructure)
-API ↔ Domain transform        → Mapper
-Recoverable error             → Failure
-Visual screen                  → Screen
-Reusable component             → Widget
-Visual style                    → Design System
+Simple state               → Cubit
+Complex/event-driven state → Bloc
+External data              → DataSource
+Business rule              → UseCase
+Business contract          → Abstract Repository
+Technical implementation   → RepositoryImpl
+API ↔ Domain transform     → Mapper
+Recoverable error          → Failure
+Visual screen              → Screen
+Reusable component         → Widget
+Visual style               → Design System
 ```
 
 ---
 
-# 18. Final Criterion
+# 17. Final Criterion
 
 An implementation is correct if:
 
 - it is easy to understand;
-- it respects the `Presentation → Application → Domain` and `Infrastructure → Domain` flow;
-- it can be tested without external services (Domain and Application can be tested with fakes for Ports);
-- the API/technical implementation can change (a new Adapter) without breaking Presentation or Application;
-- the Presentation can change without breaking Infrastructure;
-- it maintains business language in Domain and Application;
+- it respects the UI → Domain → Data flow;
+- it can be tested without external services;
+- the API can change without breaking the UI;
+- the UI can change without breaking Data;
+- it maintains business language;
 - it does not mix responsibilities;
 - it scales without becoming fragile.
 
